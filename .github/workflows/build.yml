@@ -7,22 +7,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Find and unzip project
         run: |
           mkdir -p _src
-          found=""
+          best=""
+          bt=0
           for z in *.zip; do
             [ -f "$z" ] || continue
-            if unzip -l "$z" | grep -q "DashboardActivity.kt"; then found="$z"; fi
+            unzip -l "$z" | grep -q "settings.gradle" || continue
+            t=$(git log -1 --format=%ct -- "$z" 2>/dev/null || echo 0)
+            [ -z "$t" ] && t=0
+            echo "Found project zip: $z (commit time $t)"
+            if [ "$t" -ge "$bt" ]; then best="$z"; bt="$t"; fi
           done
-          if [ -z "$found" ]; then
+          if [ -z "$best" ]; then
             echo "No project zip found in repository root. Files here:"
             ls -la
             exit 1
           fi
-          echo "Using zip: $found"
-          unzip -q -o "$found" -d _src
+          echo "Using zip: $best"
+          unzip -q -o "$best" -d _src
           settings=$(find _src -maxdepth 4 -name settings.gradle | head -1)
           if [ -z "$settings" ]; then echo "settings.gradle not found inside zip"; exit 1; fi
           proj=$(dirname "$settings")
@@ -73,7 +80,7 @@ jobs:
           gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
 
       - name: Show build errors
-        if: failure()
+        if: ${{ failure() && env.PROJ != '' }}
         shell: bash
         run: |
           cd "$PROJ" 2>/dev/null || exit 0
@@ -86,7 +93,7 @@ jobs:
           cat errors.txt
 
       - name: Upload build log
-        if: failure()
+        if: ${{ failure() && env.PROJ != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: build-log
@@ -94,5 +101,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CarNeon-APK
+          name: APK
           path: ${{ env.PROJ }}/app/build/outputs/apk/debug/app-debug.apk
